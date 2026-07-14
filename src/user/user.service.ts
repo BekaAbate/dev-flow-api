@@ -23,6 +23,8 @@ export class UserService {
         },
         omit: {
           passwordHash: true,
+          createdAt: true,
+          updatedAt: true,
         },
       });
 
@@ -32,7 +34,7 @@ export class UserService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        throw new ConflictException('Email already exists');
+        throw new ConflictException('User already exists');
       }
       throw error;
     }
@@ -40,7 +42,7 @@ export class UserService {
   async findById(id: string) {
     const user = await this.prisma.user.findUnique({
       where: { id },
-      omit: { passwordHash: true },
+      omit: { passwordHash: true, createdAt: true, updatedAt: true },
     });
     if (!user) throw new NotFoundException(`User with id '${id}' not found`);
     return user;
@@ -66,6 +68,8 @@ export class UserService {
         data,
         omit: {
           passwordHash: true,
+          createdAt: true,
+          updatedAt: true,
         },
       });
       return user;

@@ -4,7 +4,6 @@ import {
   HttpCode,
   HttpStatus,
   Post,
-  Res,
   UseGuards,
 } from '@nestjs/common';
 import { RegisterDto } from './dto/register.dto';
@@ -19,50 +18,24 @@ import { type JwtPayload } from './interfaces/jwt_payload.interface';
 export class AuthController {
   constructor(private authService: AuthService) {}
   @Post('register')
-  async register(
-    @Body() dto: RegisterDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async register(@Body() dto: RegisterDto) {
     const token = await this.authService.register(dto);
-    res.cookie('access_token', token, {
-      httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
-      maxAge: 1000 * 60 * 60 * 24,
-    });
     return {
-      messsage: 'registration successfull',
+      token,
     };
   }
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(
-    @Body() dto: LoginDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async login(@Body() dto: LoginDto) {
     const token = await this.authService.login(dto);
-    res.cookie('access_token', token, {
-      httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
-      maxAge: 1000 * 60 * 60 * 24,
-    });
     return {
-      message: 'login successfull',
+      token,
     };
   }
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(AuthGuard)
-  async logout(
-    @CurrentUser() user: JwtPayload,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async logout(@CurrentUser() user: JwtPayload) {
     await this.authService.logout(user.jti, new Date(user.exp * 1000));
-    res.clearCookie('access_token', {
-      httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
-    });
   }
 }
