@@ -8,6 +8,7 @@ import Joi from 'joi';
 import { AuthModule } from './auth/auth.module';
 import { TokenBlacklistModule } from './token-blacklist/token-blacklist.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { OrganizationModule } from './organization/organization.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { ScheduleModule } from '@nestjs/schedule';
       }),
     }),
     TokenBlacklistModule,
+    OrganizationModule,
   ],
   controllers: [AppController],
   providers: [AppService],
