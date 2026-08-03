@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { TokenBlacklistModule } from './token-blacklist/token-blacklist.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { OrganizationModule } from './organization/organization.module';
+import { CloudinaryModule } from './cloudinary/cloudinary.module';
 
 @Module({
   imports: [
@@ -21,10 +22,14 @@ import { OrganizationModule } from './organization/organization.module';
       validationSchema: Joi.object({
         DATABASE_URL: Joi.string().required(),
         JWT_SECRET: Joi.string().required(),
+        CLOUDINARY_CLOUD_NAME: Joi.string().required(),
+        CLOUDINARY_API_KEY: Joi.string().required(),
+        CLOUDINARY_API_SECRET: Joi.string().required(),
       }),
     }),
     TokenBlacklistModule,
     OrganizationModule,
+    CloudinaryModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -10,9 +10,5 @@ export class CreateOrganizationDto {
   @IsString()
   @MinLength(10)
   description?: string;
-
-  @IsOptional()
-  @IsString()
-  avatarUrl?: string;
 }
 export class UpdateOrganizationDto extends PartialType(CreateOrganizationDto) {}

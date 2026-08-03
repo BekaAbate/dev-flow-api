@@ -23,20 +23,29 @@ export class AuthGuard implements CanActivate {
       access_token?: string;
     };
     const token = cookies.access_token;
-    if (!token) throw new UnauthorizedException();
+    if (!token)
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'Unauthorized',
+      });
 
     try {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
         secret: this.configService.getOrThrow<string>('JWT_SECRET'),
       });
       if (await this.tokenBlacklistService.isBlacklisted(payload.jti)) {
-        throw new UnauthorizedException();
+        throw new UnauthorizedException({
+          code: 'UNAUTHORIZED',
+          message: 'Unauthorized',
+        });
       }
       request.user = payload;
     } catch {
-      throw new UnauthorizedException();
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'Unauthorized',
+      });
     }
-
     return true;
   }
 }

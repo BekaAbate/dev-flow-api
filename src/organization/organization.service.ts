@@ -1,6 +1,8 @@
 import {
   ConflictException,
   Injectable,
+  InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -9,16 +11,52 @@ import {
   UpdateOrganizationDto,
 } from './dto/create-organization.dto';
 import { Prisma } from 'generated/prisma/client';
+import cuid from 'cuid';
+import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
+import { UploadedImage } from 'src/cloudinary/types';
 
 @Injectable()
 export class OrganizationService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cloudinary: CloudinaryService,
+  ) {}
 
-  async create(userId: string, dto: CreateOrganizationDto) {
+  private readonly logger = new Logger(OrganizationService.name);
+
+  async create(
+    userId: string,
+    dto: CreateOrganizationDto,
+    logo?: Express.Multer.File,
+  ) {
+    const id = cuid();
+    let uploadedImage: UploadedImage | undefined;
+
     try {
+      if (logo) {
+        try {
+          uploadedImage = await this.cloudinary.upload(logo, {
+            folder: `organizations/${id}`,
+            publicId: 'logo',
+          });
+        } catch (error) {
+          throw new InternalServerErrorException(
+            {
+              code: 'IMAGE_UPLOAD_FAILED',
+              message: 'Unable to upload organization logo',
+            },
+            {
+              cause: error,
+            },
+          );
+        }
+      }
       const org = await this.prisma.organization.create({
         data: {
           ...dto,
+          id,
+          logoUrl: uploadedImage?.url,
+          logoPublicId: uploadedImage?.publicId,
           memberships: {
             create: {
               role: 'OWNER',
@@ -29,11 +67,17 @@ export class OrganizationService {
       });
       return org;
     } catch (error) {
+      if (uploadedImage) {
+        await this.cloudinary.delete(uploadedImage.publicId);
+      }
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       )
-        throw new ConflictException('Name is taken');
+        throw new ConflictException({
+          code: 'ORGANIZATION_ALREADY_EXISTS',
+          message: `'${dto.name}' is not available`,
+        });
       throw error;
     }
   }
@@ -70,10 +114,20 @@ export class OrganizationService {
         },
       },
     });
-    if (!org) throw new NotFoundException('Organization not found');
+    if (!org)
+      throw new NotFoundException({
+        code: 'ORGANIZATION_NOT_FOUND',
+        message: 'Organization not found',
+      });
     return org;
   }
-  async update(userId: string, name: string, dto: UpdateOrganizationDto) {
+  async update(
+    userId: string,
+    name: string,
+    dto: UpdateOrganizationDto,
+    logo?: Express.Multer.File,
+  ) {
+    let uploadedImage: UploadedImage | undefined;
     try {
       const organization = await this.prisma.organization.findFirst({
         where: {
@@ -88,14 +142,41 @@ export class OrganizationService {
       });
 
       if (!organization) {
-        throw new NotFoundException('Organization not found');
+        throw new NotFoundException({
+          code: 'ORGANIZATION_NOT_FOUND',
+          message: 'Organization not found',
+        });
+      }
+      if (logo) {
+        try {
+          uploadedImage = await this.cloudinary.upload(logo, {
+            folder: `organizations/${organization.id}`,
+            publicId: 'logo',
+          });
+        } catch (error) {
+          throw new InternalServerErrorException(
+            {
+              code: 'IMAGE_UPLOAD_FAILED',
+              message: 'Unable to upload organization logo',
+            },
+            {
+              cause: error,
+            },
+          );
+        }
       }
 
       const UpdatedOrg = await this.prisma.organization.update({
         where: {
           id: organization.id,
         },
-        data: dto,
+        data: {
+          ...dto,
+          ...(uploadedImage && {
+            logoUrl: uploadedImage.url,
+            logoPublicId: uploadedImage.publicId,
+          }),
+        },
       });
       return UpdatedOrg;
     } catch (error) {
@@ -103,30 +184,60 @@ export class OrganizationService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        throw new ConflictException('Name already taken');
+        throw new ConflictException({
+          code: 'ORGANIZATION_ALREADY_EXISTS',
+          message: `'${dto.name}' is not available`,
+        });
       }
       throw error;
     }
   }
   async delete(userId: string, name: string) {
-    const organization = await this.prisma.organization.findFirst({
-      where: {
-        name,
-        memberships: {
-          some: {
-            userId,
-            role: 'OWNER',
+    try {
+      const organization = await this.prisma.organization.findFirst({
+        where: {
+          name,
+          memberships: {
+            some: {
+              userId,
+              role: 'OWNER',
+            },
           },
         },
-      },
-    });
-    if (!organization) {
-      throw new NotFoundException('Organization not found');
+      });
+      if (!organization) {
+        throw new NotFoundException({
+          code: 'ORGANIZATION_NOT_FOUND',
+          message: 'Organization not found',
+        });
+      }
+      await this.prisma.organization.delete({
+        where: {
+          id: organization.id,
+        },
+      });
+      if (organization.logoPublicId) {
+        try {
+          await this.cloudinary.delete(organization.logoPublicId);
+        } catch (error) {
+          this.logger.error(
+            'CLEANUP_ERROR:',
+            `failed to delete organization logo for ${organization.id}:`,
+            error instanceof Error ? error.stack : undefined,
+          );
+        }
+      }
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException({
+          code: 'ORGANIZATION_NOT_FOUND',
+          message: 'Organization not found',
+        });
+      }
+      throw error;
     }
-    await this.prisma.organization.delete({
-      where: {
-        id: organization.id,
-      },
-    });
   }
 }

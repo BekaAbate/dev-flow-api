@@ -34,7 +34,10 @@ export class UserService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        throw new ConflictException('User already exists');
+        throw new ConflictException({
+          code: 'USER_ALREADY_EXISTS',
+          message: 'An account with this email already exists.',
+        });
       }
       throw error;
     }
@@ -44,13 +47,23 @@ export class UserService {
       where: { id },
       omit: { passwordHash: true, createdAt: true, updatedAt: true },
     });
-    if (!user) throw new NotFoundException(`User with id '${id}' not found`);
+    if (!user)
+      throw new NotFoundException({
+        code: 'USER_NOT_FOUND',
+        message: 'user not found',
+      });
     return user;
   }
   async findByEmail(email: string) {
-    return this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { email },
     });
+    if (!user)
+      throw new NotFoundException({
+        code: 'USER_NOT_FOUND',
+        message: 'user not found',
+      });
+    return user;
   }
   findAll() {
     return this.prisma.user.findMany();
@@ -77,10 +90,16 @@ export class UserService {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         switch (error.code) {
           case 'P2025':
-            throw new NotFoundException('User not found');
+            throw new NotFoundException({
+              code: 'USER_NOT_FOUND',
+              message: 'user not found',
+            });
 
           case 'P2002':
-            throw new ConflictException('Email already exists');
+            throw new ConflictException({
+              code: 'EMAIL_ALREADY_EXISTS',
+              message: 'email not available',
+            });
         }
       }
       throw error;
@@ -97,7 +116,10 @@ export class UserService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2025'
       )
-        throw new NotFoundException('User not Found');
+        throw new NotFoundException({
+          code: 'USER_NOT_FOUND',
+          message: 'user not found',
+        });
 
       throw error;
     }

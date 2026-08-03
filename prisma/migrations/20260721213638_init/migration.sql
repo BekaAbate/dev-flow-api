@@ -30,7 +30,8 @@ CREATE TABLE "Organization" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "description" TEXT,
-    "avatarUrl" TEXT,
+    "logoUrl" TEXT,
+    "logoPublicId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
