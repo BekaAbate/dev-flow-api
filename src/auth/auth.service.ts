@@ -4,14 +4,14 @@ import { RegisterDto } from './dto/register.dto';
 import { JwtService } from '@nestjs/jwt';
 import { LoginDto } from './dto/login.dto';
 import * as bcrypt from 'bcrypt';
-import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
+import { SessionService } from './session/session.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private userService: UserService,
     private jwtService: JwtService,
-    private tokenBlacklistService: TokenBlacklistService,
+    private session: SessionService,
   ) {}
   async register(dto: RegisterDto) {
     const user = await this.userService.create(dto);
@@ -45,6 +45,6 @@ export class AuthService {
     return user;
   }
   logout(jti: string, expiresAt: Date) {
-    return this.tokenBlacklistService.blacklist(jti, expiresAt);
+    return this.session.blacklist(jti, expiresAt);
   }
 }

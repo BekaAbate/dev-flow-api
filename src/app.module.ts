@@ -6,14 +6,15 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ConfigModule } from '@nestjs/config';
 import Joi from 'joi';
 import { AuthModule } from './auth/auth.module';
-import { TokenBlacklistModule } from './token-blacklist/token-blacklist.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { OrganizationModule } from './organization/organization.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { RedisModule } from './infrastructure/redis/redis.module';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
+    RedisModule,
     UserModule,
     AuthModule,
     PrismaModule,
@@ -27,7 +28,6 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
         CLOUDINARY_API_SECRET: Joi.string().required(),
       }),
     }),
-    TokenBlacklistModule,
     OrganizationModule,
     CloudinaryModule,
   ],

@@ -8,14 +8,14 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { JwtPayload } from '../interfaces/jwt_payload.interface';
-import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
+import { SessionService } from '../session/session.service';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
     private jwtService: JwtService,
     private configService: ConfigService,
-    private tokenBlacklistService: TokenBlacklistService,
+    private session: SessionService,
   ) {}
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
@@ -33,7 +33,7 @@ export class AuthGuard implements CanActivate {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
         secret: this.configService.getOrThrow<string>('JWT_SECRET'),
       });
-      if (await this.tokenBlacklistService.isBlacklisted(payload.jti)) {
+      if (await this.session.isBlacklisted(payload.jti)) {
         throw new UnauthorizedException({
           code: 'UNAUTHORIZED',
           message: 'Unauthorized',

@@ -5,12 +5,11 @@ import { AuthService } from './auth.service';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from './guards/auth.guard';
-import { TokenBlacklistModule } from 'src/token-blacklist/token-blacklist.module';
+import { SessionService } from './session/session.service';
 
 @Module({
   imports: [
     forwardRef(() => UserModule),
-    TokenBlacklistModule,
     JwtModule.registerAsync({
       global: true,
       inject: [ConfigService],
@@ -23,7 +22,7 @@ import { TokenBlacklistModule } from 'src/token-blacklist/token-blacklist.module
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, AuthGuard],
+  providers: [AuthService, AuthGuard, SessionService],
   exports: [AuthGuard],
 })
 export class AuthModule {}

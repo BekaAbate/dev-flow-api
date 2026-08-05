@@ -32,16 +32,6 @@ model User {
   memberships Membership[]
 }
 
-model TokenBlacklist {
-  id        String   @id @default(cuid())
-  jti       String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  @@index([expiresAt])
-  @@map("token_blacklist")
-}
-
 model Organization {
   id           String   @id @default(cuid())
   name         String   @unique
