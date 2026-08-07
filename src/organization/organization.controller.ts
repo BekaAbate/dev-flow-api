@@ -22,7 +22,7 @@ import { type JwtPayload } from 'src/auth/interfaces/jwt_payload.interface';
 import {
   CreateOrganizationDto,
   UpdateOrganizationDto,
-} from './dto/create-organization.dto';
+} from './dto/organization.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 
 @UseGuards(AuthGuard)

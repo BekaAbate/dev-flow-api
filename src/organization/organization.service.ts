@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -8,18 +9,21 @@ import {
 import { PrismaService } from 'src/prisma/prisma.service';
 import {
   CreateOrganizationDto,
+  OrganizationResponseDto,
   UpdateOrganizationDto,
-} from './dto/create-organization.dto';
+} from './dto/organization.dto';
 import { Prisma } from 'generated/prisma/client';
 import cuid from 'cuid';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { UploadedImage } from 'src/cloudinary/types';
+import { RedisService } from 'src/infrastructure/redis/redis.service';
 
 @Injectable()
 export class OrganizationService {
   constructor(
     private prisma: PrismaService,
     private cloudinary: CloudinaryService,
+    private redis: RedisService,
   ) {}
 
   private readonly logger = new Logger(OrganizationService.name);
@@ -28,7 +32,8 @@ export class OrganizationService {
     userId: string,
     dto: CreateOrganizationDto,
     logo?: Express.Multer.File,
-  ) {
+  ): Promise<OrganizationResponseDto> {
+    const key = `user:${userId}:organizations`;
     const id = cuid();
     let uploadedImage: UploadedImage | undefined;
 
@@ -51,7 +56,7 @@ export class OrganizationService {
           );
         }
       }
-      const org = await this.prisma.organization.create({
+      const organization = await this.prisma.organization.create({
         data: {
           ...dto,
           id,
@@ -64,8 +69,31 @@ export class OrganizationService {
             },
           },
         },
+        include: {
+          memberships: {
+            select: {
+              role: true,
+            },
+          },
+        },
       });
-      return org;
+
+      const { memberships, ...organizationData } = organization;
+      const organizationResponse = {
+        ...organizationData,
+        role: memberships[0].role,
+      };
+
+      try {
+        await this.redis.delete(key);
+      } catch (error) {
+        this.logger.error(
+          'CLEANUP_ERROR:',
+          'Failed to invalidate organizations cache',
+          error,
+        );
+      }
+      return organizationResponse;
     } catch (error) {
       if (uploadedImage) {
         await this.cloudinary.delete(uploadedImage.publicId);
@@ -81,8 +109,15 @@ export class OrganizationService {
       throw error;
     }
   }
-  async findAll(userId: string) {
-    const orgs = await this.prisma.organization.findMany({
+  async findAll(userId: string): Promise<OrganizationResponseDto[]> {
+    const key = `user:${userId}:organizations`;
+    try {
+      const cached = await this.redis.get(key);
+      if (cached) return JSON.parse(cached) as OrganizationResponseDto[];
+    } catch (error) {
+      this.logger.error('Failed to get organizations from redis', error);
+    }
+    const organizations = await this.prisma.organization.findMany({
       where: {
         memberships: {
           some: {
@@ -90,11 +125,54 @@ export class OrganizationService {
           },
         },
       },
+      include: {
+        memberships: {
+          where: {
+            userId,
+          },
+          select: {
+            role: true,
+          },
+        },
+      },
     });
-    return orgs;
+    const organizationsResponse = organizations.map((organization) => {
+      const { memberships, ...organizationData } = organization;
+      return {
+        ...organizationData,
+        role: memberships[0].role,
+      };
+    });
+    try {
+      await this.redis.set(key, JSON.stringify(organizationsResponse), {
+        type: 'EX',
+        value: 300,
+      });
+    } catch (error) {
+      this.logger.error('Failed to set organizations to redis', error);
+    }
+    return organizationsResponse;
   }
-  async findOne(userId: string, name: string) {
-    const org = await this.prisma.organization.findFirst({
+  async findOne(
+    userId: string,
+    name: string,
+  ): Promise<OrganizationResponseDto | null> {
+    const key = `user:${userId}:organization:${name}`;
+    try {
+      const cached = await this.redis.get(key);
+      if (cached) {
+        if (cached === 'NOT_FOUND') {
+          throw new NotFoundException({
+            code: 'ORGANIZATION_NOT_FOUND',
+            message: 'Organization not found',
+          });
+        }
+        return JSON.parse(cached) as OrganizationResponseDto;
+      }
+    } catch (error) {
+      this.logger.error('Failed to get organization from redis', error);
+    }
+    const organization = await this.prisma.organization.findFirst({
       where: {
         name,
         memberships: {
@@ -114,20 +192,60 @@ export class OrganizationService {
         },
       },
     });
-    if (!org)
+    if (!organization) {
+      try {
+        await this.redis.set(key, 'NOT_FOUND', {
+          type: 'EX',
+          value: 60,
+        });
+      } catch (error) {
+        this.logger.error('Failed to set organizations to redis', error);
+      }
       throw new NotFoundException({
         code: 'ORGANIZATION_NOT_FOUND',
         message: 'Organization not found',
       });
-    return org;
+    }
+
+    const { memberships, ...organizationData } = organization;
+    const organizationResponse = {
+      ...organizationData,
+      role: memberships[0].role,
+    };
+
+    try {
+      await this.redis.set(key, JSON.stringify(organizationResponse), {
+        type: 'EX',
+        value: 300,
+      });
+    } catch (error) {
+      this.logger.error('Failed to set organizations to redis', error);
+    }
+    return organizationResponse;
   }
   async update(
     userId: string,
     name: string,
     dto: UpdateOrganizationDto,
     logo?: Express.Multer.File,
-  ) {
+  ): Promise<OrganizationResponseDto> {
+    const key = `user:${userId}:organization:${name}`;
     let uploadedImage: UploadedImage | undefined;
+
+    try {
+      const cached = await this.redis.get(key);
+      if (cached) {
+        if (cached === 'NOT_FOUND') {
+          throw new NotFoundException({
+            code: 'ORGANIZATION_NOT_FOUND',
+            message: 'Organization not found',
+          });
+        }
+      }
+    } catch (error) {
+      this.logger.error('Failed to get organization from redis', error);
+    }
+
     try {
       const organization = await this.prisma.organization.findFirst({
         where: {
@@ -135,16 +253,38 @@ export class OrganizationService {
           memberships: {
             some: {
               userId,
-              role: 'OWNER',
+            },
+          },
+        },
+        include: {
+          memberships: {
+            select: {
+              role: true,
             },
           },
         },
       });
 
       if (!organization) {
+        try {
+          await this.redis.set(key, 'NOT_FOUND', {
+            type: 'EX',
+            value: 60,
+          });
+        } catch (error) {
+          this.logger.error('Failed to set organization to redis', error);
+        }
         throw new NotFoundException({
           code: 'ORGANIZATION_NOT_FOUND',
           message: 'Organization not found',
+        });
+      }
+      const userRole = organization.memberships[0].role;
+
+      if (userRole !== 'OWNER') {
+        throw new ForbiddenException({
+          code: 'ORGANIZATION_OWNER_REQUIRED',
+          message: "you don't have sufficient permissions for this action",
         });
       }
       if (logo) {
@@ -166,7 +306,7 @@ export class OrganizationService {
         }
       }
 
-      const UpdatedOrg = await this.prisma.organization.update({
+      const UpdatedOrganization = await this.prisma.organization.update({
         where: {
           id: organization.id,
         },
@@ -177,22 +317,77 @@ export class OrganizationService {
             logoPublicId: uploadedImage.publicId,
           }),
         },
+        include: {
+          memberships: {
+            where: {
+              userId,
+            },
+            select: {
+              role: true,
+            },
+          },
+        },
       });
-      return UpdatedOrg;
+
+      const { memberships, ...organizationData } = UpdatedOrganization;
+      const organizationResponse = {
+        ...organizationData,
+        role: memberships[0].role,
+      };
+
+      try {
+        await this.redis.delete(key);
+      } catch (error) {
+        this.logger.error(
+          'CLEANUP_ERROR:',
+          'Failed to invalidate organization cache',
+          error,
+        );
+      }
+      return organizationResponse;
     } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
-        throw new ConflictException({
-          code: 'ORGANIZATION_ALREADY_EXISTS',
-          message: `'${dto.name}' is not available`,
-        });
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        switch (error.code) {
+          case 'P2002':
+            throw new ConflictException({
+              code: 'ORGANIZATION_ALREADY_EXISTS',
+              message: `'${dto.name}' is not available`,
+            });
+          case 'P2025':
+            try {
+              await this.redis.set(key, 'NOT_FOUND', {
+                type: 'EX',
+                value: 60,
+              });
+            } catch (error) {
+              this.logger.error('Failed to set organizations to redis', error);
+            }
+            throw new NotFoundException({
+              code: 'ORGANIZATION_NOT_FOUND',
+              message: 'Organization not found',
+            });
+        }
       }
       throw error;
     }
   }
   async delete(userId: string, name: string) {
+    const key = `user:${userId}:organization:${name}`;
+
+    try {
+      const cached = await this.redis.get(key);
+      if (cached) {
+        if (cached === 'NOT_FOUND') {
+          throw new NotFoundException({
+            code: 'ORGANIZATION_NOT_FOUND',
+            message: 'Organization not found',
+          });
+        }
+      }
+    } catch (error) {
+      this.logger.error('Failed to get organization from redis', error);
+    }
+
     try {
       const organization = await this.prisma.organization.findFirst({
         where: {
@@ -200,17 +395,40 @@ export class OrganizationService {
           memberships: {
             some: {
               userId,
-              role: 'OWNER',
+            },
+          },
+        },
+        include: {
+          memberships: {
+            select: {
+              role: true,
             },
           },
         },
       });
       if (!organization) {
+        try {
+          await this.redis.set(key, 'NOT_FOUND', {
+            type: 'EX',
+            value: 60,
+          });
+        } catch (error) {
+          this.logger.error('Failed to set organization to redis', error);
+        }
         throw new NotFoundException({
           code: 'ORGANIZATION_NOT_FOUND',
           message: 'Organization not found',
         });
       }
+      const userRole = organization.memberships[0].role;
+
+      if (userRole !== 'OWNER') {
+        throw new ForbiddenException({
+          code: 'ORGANIZATION_OWNER_REQUIRED',
+          message: "you don't have sufficient permissions for this action",
+        });
+      }
+
       await this.prisma.organization.delete({
         where: {
           id: organization.id,
@@ -226,6 +444,16 @@ export class OrganizationService {
             error instanceof Error ? error.stack : undefined,
           );
         }
+      }
+
+      try {
+        await this.redis.delete(key);
+      } catch (error) {
+        this.logger.error(
+          'CLEANUP_ERROR:',
+          'Failed to invalidate organization cache',
+          error,
+        );
       }
     } catch (error) {
       if (
