@@ -1,15 +1,13 @@
 import {
-  Inject,
   Injectable,
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { type RedisClientType } from 'redis';
-import { REDIS_CLIENT } from 'src/infrastructure/redis/redis.provider';
+import { RedisService } from 'src/infrastructure/redis/redis.service';
 
 @Injectable()
 export class SessionService {
-  constructor(@Inject(REDIS_CLIENT) private readonly client: RedisClientType) {}
+  constructor(private readonly redis: RedisService) {}
   private readonly logger = new Logger(SessionService.name);
 
   async blacklist(jti: string, expiresAt: Date) {
@@ -18,11 +16,9 @@ export class SessionService {
       return;
     }
     try {
-      return await this.client.set(`blacklist:${jti}`, '1', {
-        expiration: {
-          type: 'EXAT',
-          value: ttl_seconds,
-        },
+      return await this.redis.set(`blacklist:${jti}`, '1', {
+        type: 'EXAT',
+        value: ttl_seconds,
       });
     } catch (error) {
       this.logger.error(`Failed to blacklist token: ${jti}`, error);
@@ -34,8 +30,7 @@ export class SessionService {
   }
   async isBlacklisted(jti: string) {
     try {
-      const exists = await this.client.get(`blacklist:${jti}`);
-      return exists !== null;
+      return await this.redis.exists(`blacklist:${jti}`);
     } catch (error) {
       this.logger.error(
         'Failed to get session',
