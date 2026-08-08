@@ -1,18 +1,24 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { CreateUserDto } from './dto/create-user.dto';
+import { CreateUserDto, UpdateUserDto } from './dto/user-request-dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { Prisma } from 'generated/prisma/client';
-import { UpdateUserDto } from './dto/update-user.dto';
+import { RedisService } from 'src/infrastructure/redis/redis.service';
+import { UserResponseDto } from './dto/user-response-dto';
 
 @Injectable()
 export class UserService {
-  constructor(private prisma: PrismaService) {}
-  async create(dto: CreateUserDto) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
+  logger = new Logger(UserService.name);
+  async create(dto: CreateUserDto): Promise<UserResponseDto> {
     const { password, ...userData } = dto;
     const passwordHash = await bcrypt.hash(password, 10);
     try {
@@ -23,11 +29,18 @@ export class UserService {
         },
         omit: {
           passwordHash: true,
-          createdAt: true,
-          updatedAt: true,
         },
       });
 
+      const key = `user:${user.id}`;
+      try {
+        await this.redis.set(key, JSON.stringify(user), {
+          type: 'EX',
+          value: 300,
+        });
+      } catch (error) {
+        this.logger.error('Failed to set user to redis:', error);
+      }
       return user;
     } catch (error) {
       if (
@@ -42,16 +55,50 @@ export class UserService {
       throw error;
     }
   }
-  async findById(id: string) {
+  async findById(id: string): Promise<UserResponseDto> {
+    const key = `user:${id}`;
+
+    try {
+      const cached = await this.redis.get(key);
+      if (cached) {
+        if (cached === 'NOT_FOUND') {
+          throw new NotFoundException({
+            code: 'USER_NOT_FOUND',
+            message: 'user not found',
+          });
+        }
+        return JSON.parse(cached) as UserResponseDto;
+      }
+    } catch (error) {
+      this.logger.error('Failed to get user from redis:', error);
+    }
     const user = await this.prisma.user.findUnique({
       where: { id },
-      omit: { passwordHash: true, createdAt: true, updatedAt: true },
+      omit: { passwordHash: true },
     });
-    if (!user)
+    if (!user) {
+      try {
+        await this.redis.set(key, 'NOT_FOUND', {
+          type: 'EX',
+          value: 60,
+        });
+      } catch (error) {
+        this.logger.error('Failed to set user to redis:', error);
+      }
       throw new NotFoundException({
         code: 'USER_NOT_FOUND',
         message: 'user not found',
       });
+    }
+
+    try {
+      await this.redis.set(key, JSON.stringify(user), {
+        type: 'EX',
+        value: 300,
+      });
+    } catch (error) {
+      this.logger.error('Failed to set user from redis:', error);
+    }
     return user;
   }
   async findByEmail(email: string) {
@@ -68,7 +115,7 @@ export class UserService {
   findAll() {
     return this.prisma.user.findMany();
   }
-  async update(id: string, dto: UpdateUserDto) {
+  async update(id: string, dto: UpdateUserDto): Promise<UserResponseDto> {
     const { password, ...userData } = dto;
     const data: Prisma.UserUpdateInput = {
       ...userData,
@@ -81,8 +128,6 @@ export class UserService {
         data,
         omit: {
           passwordHash: true,
-          createdAt: true,
-          updatedAt: true,
         },
       });
       return user;
