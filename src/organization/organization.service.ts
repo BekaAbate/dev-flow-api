@@ -158,19 +158,22 @@ export class OrganizationService {
     name: string,
   ): Promise<OrganizationResponseDto | null> {
     const key = `user:${userId}:organization:${name}`;
+    let cached: string | null = null;
+
     try {
-      const cached = await this.redis.get(key);
-      if (cached) {
-        if (cached === 'NOT_FOUND') {
-          throw new NotFoundException({
-            code: 'ORGANIZATION_NOT_FOUND',
-            message: 'Organization not found',
-          });
-        }
-        return JSON.parse(cached) as OrganizationResponseDto;
-      }
+      cached = await this.redis.get(key);
     } catch (error) {
       this.logger.error('Failed to get organization from redis', error);
+    }
+
+    if (cached) {
+      if (cached === 'NOT_FOUND') {
+        throw new NotFoundException({
+          code: 'ORGANIZATION_NOT_FOUND',
+          message: 'Organization not found',
+        });
+      }
+      return JSON.parse(cached) as OrganizationResponseDto;
     }
     const organization = await this.prisma.organization.findFirst({
       where: {
@@ -231,19 +234,20 @@ export class OrganizationService {
   ): Promise<OrganizationResponseDto> {
     const key = `user:${userId}:organization:${name}`;
     let uploadedImage: UploadedImage | undefined;
-
+    let cached: string | null = null;
     try {
-      const cached = await this.redis.get(key);
-      if (cached) {
-        if (cached === 'NOT_FOUND') {
-          throw new NotFoundException({
-            code: 'ORGANIZATION_NOT_FOUND',
-            message: 'Organization not found',
-          });
-        }
-      }
+      cached = await this.redis.get(key);
     } catch (error) {
       this.logger.error('Failed to get organization from redis', error);
+    }
+
+    if (cached) {
+      if (cached === 'NOT_FOUND') {
+        throw new NotFoundException({
+          code: 'ORGANIZATION_NOT_FOUND',
+          message: 'Organization not found',
+        });
+      }
     }
 
     try {
@@ -373,19 +377,20 @@ export class OrganizationService {
   }
   async delete(userId: string, name: string) {
     const key = `user:${userId}:organization:${name}`;
-
+    let cached: string | null = null;
     try {
-      const cached = await this.redis.get(key);
-      if (cached) {
-        if (cached === 'NOT_FOUND') {
-          throw new NotFoundException({
-            code: 'ORGANIZATION_NOT_FOUND',
-            message: 'Organization not found',
-          });
-        }
-      }
+      cached = await this.redis.get(key);
     } catch (error) {
       this.logger.error('Failed to get organization from redis', error);
+    }
+
+    if (cached) {
+      if (cached === 'NOT_FOUND') {
+        throw new NotFoundException({
+          code: 'ORGANIZATION_NOT_FOUND',
+          message: 'Organization not found',
+        });
+      }
     }
 
     try {

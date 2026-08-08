@@ -57,20 +57,21 @@ export class UserService {
   }
   async findById(id: string): Promise<UserResponseDto> {
     const key = `user:${id}`;
-
+    let cached: string | null = null;
     try {
-      const cached = await this.redis.get(key);
-      if (cached) {
-        if (cached === 'NOT_FOUND') {
-          throw new NotFoundException({
-            code: 'USER_NOT_FOUND',
-            message: 'user not found',
-          });
-        }
-        return JSON.parse(cached) as UserResponseDto;
-      }
+      cached = await this.redis.get(key);
     } catch (error) {
       this.logger.error('Failed to get user from redis:', error);
+    }
+
+    if (cached) {
+      if (cached === 'NOT_FOUND') {
+        throw new NotFoundException({
+          code: 'USER_NOT_FOUND',
+          message: 'user not found',
+        });
+      }
+      return JSON.parse(cached) as UserResponseDto;
     }
     const user = await this.prisma.user.findUnique({
       where: { id },
